@@ -23,6 +23,26 @@ $('#foodForm').onsubmit=async e=>{e.preventDefault();const f=new FormData(e.targ
 $$('[data-water]').forEach(b=>b.onclick=()=>insert('water_entries',{milliliters:n(b.dataset.water),entry_date:today()}));
 $('#exerciseForm').onsubmit=async e=>{e.preventDefault();const f=new FormData(e.target);const ok=await insert('exercise_entries',{name:f.get('name'),minutes:n(f.get('minutes')),intensity:f.get('intensity'),notes:f.get('notes'),entry_date:today()});if(ok)e.target.reset()};
 $('#bodyForm').elements.date.value=today();$('#bodyForm').onsubmit=async e=>{e.preventDefault();const f=new FormData(e.target);const row={entry_date:f.get('date'),weight_kg:n(f.get('weight'))};for(const k of ['waist','hip','arm','thigh'])if(f.get(k))row[k+'_cm']=n(f.get(k));const ok=await insert('body_entries',row);if(ok)e.target.reset();$('#bodyForm').elements.date.value=today()};
-$('#analyzePhoto').onclick=async()=>{const file=$('#foodPhoto').files[0];if(!file){message('#photoMsg','Escolha uma foto primeiro.');return}message('#photoMsg','Para analisar a foto, configure a função de IA descrita no README. A imagem não foi enviada.');};
-$('#aiForm').onsubmit=async e=>{e.preventDefault();message('#aiAnswer','A função de IA precisa ser configurada no servidor conforme o README. Não envie informações sensíveis até concluir essa configuração.');};
+async function askAI(payload, target){
+  if(!user){message(target,'Entre na sua conta para usar a IA.');return}
+  message(target,'A IA está pensando…');
+  const {data:result,error}=await supabase.functions.invoke('ai-assistant',{body:payload});
+  if(error){console.error('AI function error:',error);message(target,'Não consegui obter uma resposta. Confira se a função ai-assistant foi publicada e se a chave da OpenAI está configurada. Detalhe: '+(error.message||'erro de conexão'));return}
+  if(result?.error){message(target,'Não consegui responder: '+result.error);return}
+  message(target,result?.answer||'Não recebi uma resposta. Tente novamente.');
+}
+$('#analyzePhoto').onclick=async()=>{
+  const file=$('#foodPhoto').files[0];
+  if(!file){message('#photoMsg','Escolha uma foto primeiro.');return}
+  if(file.size>5*1024*1024){message('#photoMsg','Escolha uma imagem com até 5 MB.');return}
+  message('#photoMsg','Preparando a foto para análise…');
+  try{
+    const image=await new Promise((resolve,reject)=>{const reader=new FileReader();reader.onload=()=>resolve(reader.result);reader.onerror=()=>reject(new Error('Não foi possível ler a imagem.'));reader.readAsDataURL(file)});
+    const {data:result,error}=await supabase.functions.invoke('ai-assistant',{body:{question:'Estime os alimentos visíveis, porções aproximadas, calorias e macronutrientes. Informe incertezas e não trate os números como exatos.',image}});
+    if(error)throw error;
+    if(result?.error)throw new Error(result.error);
+    message('#photoMsg',result?.answer||'Não recebi uma estimativa. Tente novamente.');
+  }catch(err){console.error('Photo AI error:',err);message('#photoMsg','Não consegui analisar a foto. Confira se a função ai-assistant está publicada e a chave da OpenAI configurada. Detalhe: '+(err.message||'erro de conexão'));}
+};
+$('#aiForm').onsubmit=async e=>{e.preventDefault();const f=new FormData(e.target);await askAI({question:String(f.get('question')||'')},'#aiAnswer')};
 window.addEventListener('resize',()=>drawChart([...data.body].sort((a,b)=>(a.entry_date||'').localeCompare(b.entry_date||''))));authState();
